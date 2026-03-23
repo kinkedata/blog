@@ -6,9 +6,37 @@ Script para extraer fechaNota de URLs de Telcel usando Selenium
 Usa un navegador real para renderizar JavaScript y obtener el atributo correctamente
 """
 
+import os
 import time
 import csv
 from datetime import datetime
+
+try:
+    import openpyxl
+    HAS_OPENPYXL = True
+except ImportError:
+    HAS_OPENPYXL = False
+
+
+def save_results(results, label=''):
+    """Guarda resultados en .xlsx (o .csv si no hay openpyxl)."""
+    suffix = f'_{label}' if label else ''
+    if HAS_OPENPYXL:
+        filename = f'Telcel_Fechas_Extraidas{suffix}.xlsx'
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = 'Fechas'
+        ws.append(['URL', 'Visitas', 'Fecha'])
+        for r in results:
+            ws.append([r['url'], r['visits'], r['fecha']])
+        wb.save(filename)
+    else:
+        filename = f'Telcel_Fechas_Extraidas{suffix}.csv'
+        with open(filename, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=['url', 'visits', 'fecha'])
+            writer.writeheader()
+            writer.writerows(results)
+    return filename
 
 try:
     from selenium import webdriver
@@ -74,9 +102,9 @@ def main():
             for line in f:
                 parts = line.strip().split('|')
                 if len(parts) == 2:
-                    slug = parts[0]
+                    slug = parts[0].strip()
                     visits = int(parts[1])
-                    url = f"https://www.telcel.com/empresas/tendencias/notas/{slug}"
+                    url = f"https://{slug}"
                     urls_data.append({
                         'url': url,
                         'visits': visits
@@ -117,13 +145,30 @@ def main():
         print("=" * 80)
         print()
         
+        STOP_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'stop_signal.txt')
+
+        # Limpiar señal anterior si quedó
+        if os.path.exists(STOP_FILE):
+            os.remove(STOP_FILE)
+
         for i, item in enumerate(urls_data, 1):
+
+            # Verificar señal de parada
+            if os.path.exists(STOP_FILE):
+                os.remove(STOP_FILE)
+                print()
+                print("⚠️ Señal de parada recibida.")
+                print("💾 Guardando resultados parciales...")
+                filename = save_results(results, 'PARCIAL')
+                print(f"✅ Guardado: {filename}  ({len(results)} URLs procesadas)")
+                break
+
             url = item['url']
             visits = item['visits']
-            
+
             # Extraer fecha
             fecha = extract_fecha_from_url(driver, url)
-            
+
             # Guardar resultado
             result = {
                 'url': url,
@@ -131,18 +176,18 @@ def main():
                 'fecha': fecha or ''
             }
             results.append(result)
-            
+
             if fecha:
                 successful += 1
             else:
                 failed += 1
-            
+
             # Mostrar progreso cada 10 URLs
             if i % 10 == 0:
                 percent = round((i / len(urls_data)) * 100)
                 print(f"\n✅ Procesadas {i}/{len(urls_data)} ({percent}%)...")
                 print()
-            
+
             # Delay entre requests (1 segundo)
             time.sleep(1)
         
@@ -151,21 +196,15 @@ def main():
         print("=" * 80)
         print("🔌 Cerrando navegador...")
         driver.quit()
-        
-        # Guardar resultados en CSV
+
+        # Guardar resultados
         print()
         print("💾 GUARDANDO RESULTADOS...")
-        
-        csv_filename = 'Telcel_Fechas_Extraidas_Selenium.csv'
-        with open(csv_filename, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=['url', 'visits', 'fecha'])
-            writer.writeheader()
-            writer.writerows(results)
-        
-        print(f"✅ Archivo guardado: {csv_filename}")
+        filename = save_results(results)
+        print(f"✅ Archivo guardado: {filename}")
         print()
-        
-        # Mostrar estadísticas
+
+        # Estadísticas finales
         print("📊 ESTADÍSTICAS FINALES:")
         print(f"   Total procesadas: {len(results)}")
         print(f"   ✅ Con fecha: {successful}")
@@ -173,14 +212,23 @@ def main():
         print()
         print("✅ ¡PROCESO COMPLETADO!")
         print()
-        print(f"El archivo CSV está listo para abrir en Excel: {csv_filename}")
-        
+        print(f"Archivo listo: {filename}")
+
     except KeyboardInterrupt:
         print("\n\n⚠️ Proceso interrumpido por el usuario")
         driver.quit()
+        if results:
+            print("💾 Guardando resultados parciales...")
+            filename = save_results(results, 'PARCIAL')
+            print(f"✅ Resultados parciales guardados: {filename}")
+            print(f"   URLs procesadas hasta ahora: {len(results)}")
     except Exception as e:
         print(f"\n\n❌ Error durante el proceso: {e}")
         driver.quit()
+        if results:
+            print("💾 Guardando resultados parciales...")
+            filename = save_results(results, 'PARCIAL')
+            print(f"✅ Resultados parciales guardados: {filename}")
 
 
 if __name__ == '__main__':
