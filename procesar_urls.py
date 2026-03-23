@@ -145,10 +145,10 @@ for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
         continue
 
     visitas = visitas_cell.value
-    if visitas is None or visitas < 100:
+    if visitas is None or visitas < 400:
         titulo_cell.fill = FILL_ROJO
         conteo["rojo"] += 1
-    elif visitas < 300:
+    elif visitas < 1000:
         titulo_cell.fill = FILL_AMARILLO
         conteo["amarillo"] += 1
     else:
@@ -157,7 +157,7 @@ for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
 
 wb.save(output_excel)
 print(f"\nColores aplicados (notas anteriores al 01/01/2025):")
-print(f"  Rojo    (< 100 o sin visitas): {conteo['rojo']}")
-print(f"  Amarillo (100–299 visitas):    {conteo['amarillo']}")
+print(f"  Rojo    (< 400 o sin visitas): {conteo['rojo']}")
+print(f"  Amarillo (400–999 visitas):   {conteo['amarillo']}")
 print(f"  Verde   (>= 300 visitas):      {conteo['verde']}")
 print(f"  Omitidas (fecha >= 2025):      {conteo['omitidas']}")
