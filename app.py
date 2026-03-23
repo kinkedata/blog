@@ -7,6 +7,7 @@ Uso: python app.py  →  http://localhost:5001
 """
 
 import os
+import json
 import subprocess
 import sys
 from flask import Flask, Response, render_template, stream_with_context, jsonify
@@ -78,6 +79,32 @@ def stream_urls():
 def stream_fechas():
     """Paso 2: extractor de fechaNota por URL."""
     return _stream_script('extractor_selenium.py')
+
+
+@app.route('/stream-clasificar')
+def stream_clasificar():
+    """Paso 3: clasifica notas por Solución y Servicio."""
+    return _stream_script('clasificador.py')
+
+
+@app.route('/reset-checkpoint', methods=['POST'])
+def reset_checkpoint():
+    """Elimina el checkpoint para reiniciar la clasificación desde cero."""
+    ckpt = os.path.join(BASE_DIR, 'clasificador_checkpoint.json')
+    if os.path.exists(ckpt):
+        os.remove(ckpt)
+    return jsonify({'ok': True})
+
+
+@app.route('/checkpoint-status')
+def checkpoint_status():
+    """Devuelve el estado actual del checkpoint."""
+    ckpt = os.path.join(BASE_DIR, 'clasificador_checkpoint.json')
+    if os.path.exists(ckpt):
+        with open(ckpt, encoding='utf-8') as f:
+            data = json.load(f)
+        return jsonify(data)
+    return jsonify({'last_processed_row': -1})
 
 
 @app.route('/stop', methods=['POST'])

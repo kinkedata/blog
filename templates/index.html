@@ -450,6 +450,63 @@
 
     </div><!-- /steps -->
 
+    <!-- ── PASO 3: CLASIFICADOR ──────────────────────────────── -->
+    <div class="card" style="margin-bottom:16px;">
+        <div class="card-header">
+            <div class="step-badge">3</div>
+            <span class="card-title">Clasificar notas por Solución y Servicio</span>
+        </div>
+        <div class="card-body">
+            <div class="card-desc">
+                Abre cada URL del Excel <strong>notas_blog_telcel_con_visitas.xlsx</strong>,
+                analiza el contenido con keywords del catálogo de las 8 soluciones Telcel
+                y escribe las columnas <strong>solución</strong> y <strong>servicio</strong>.
+                Guarda un checkpoint tras cada fila — puedes detener y reanudar en cualquier momento.
+            </div>
+
+            <div class="step-stats" style="grid-template-columns: repeat(4, 1fr);">
+                <div class="sstat s-main">
+                    <div class="sstat-label">Total</div>
+                    <div class="sstat-value" id="s3Total">—</div>
+                </div>
+                <div class="sstat s-ok">
+                    <div class="sstat-label">Clasificadas</div>
+                    <div class="sstat-value" id="s3Ok">0</div>
+                </div>
+                <div class="sstat s-err">
+                    <div class="sstat-label">Sin match</div>
+                    <div class="sstat-value" id="s3NoMatch">0</div>
+                </div>
+                <div class="sstat">
+                    <div class="sstat-label">Procesadas</div>
+                    <div class="sstat-value" id="s3Processed" style="font-size:13px;">0</div>
+                </div>
+            </div>
+
+            <div class="progress-wrap" id="prog3">
+                <div class="progress-row">
+                    <span class="progress-label" id="prog3Label">Iniciando...</span>
+                    <span class="progress-pct" id="prog3Pct">0%</span>
+                </div>
+                <div class="bar-track"><div class="bar-fill" id="bar3"></div></div>
+            </div>
+
+            <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+                <button class="btn btn-primary" id="btn3" onclick="toggleStep(3)">
+                    <svg viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M3 2.5a.5.5 0 0 1 .78-.41l10 5.5a.5.5 0 0 1 0 .82l-10 5.5A.5.5 0 0 1 3 13.5z"/>
+                    </svg>
+                    Iniciar / Reanudar
+                </button>
+                <button class="btn" style="background:#f1f5f9;color:#475569;border:1px solid #d1dae6;"
+                        onclick="resetCheckpoint()">
+                    ↺ Reiniciar desde cero
+                </button>
+                <span id="s3ResumeTip" style="font-size:11px;color:#64748b;"></span>
+            </div>
+        </div>
+    </div>
+
     <!-- ── CONSOLA COMPARTIDA ────────────────────────────────── -->
     <div class="card console-card">
         <div class="console-topbar">
@@ -470,10 +527,19 @@
     const state = {
         1: { running: false, evtSource: null, pages: 0, urls: 0 },
         2: { running: false, evtSource: null, total: 0, ok: 0, err: 0 },
+        3: { running: false, evtSource: null, total: 0, ok: 0, noMatch: 0, processed: 0 },
     };
 
-    const ENDPOINTS = { 1: '/stream-urls', 2: '/stream-fechas' };
-    const NAMES     = { 1: 'scraper_urls.py', 2: 'extractor_selenium.py' };
+    const ENDPOINTS = { 1: '/stream-urls', 2: '/stream-fechas', 3: '/stream-clasificar' };
+    const NAMES     = { 1: 'scraper_urls.py', 2: 'extractor_selenium.py', 3: 'clasificador.py' };
+
+    // Mostrar info de checkpoint al cargar
+    fetch('/checkpoint-status').then(r => r.json()).then(data => {
+        if (data.last_processed_row >= 0) {
+            document.getElementById('s3ResumeTip').textContent =
+                `Checkpoint: fila ${data.last_processed_row + 1} procesada — clic en Reanudar para continuar`;
+        }
+    }).catch(() => {});
 
     /* ── Toggle ─────────────────────────────────────────────── */
     function toggleStep(n) {
@@ -481,9 +547,9 @@
     }
 
     function startStep(n) {
-        // Si el otro paso está corriendo, no permitir
-        const other = n === 1 ? 2 : 1;
-        if (state[other].running) {
+        // Si algún otro paso está corriendo, no permitir
+        const others = [1, 2, 3].filter(x => x !== n);
+        if (others.some(x => state[x].running)) {
             addLine('⚠️  Detén el otro paso antes de iniciar este.', 'warning');
             return;
         }
@@ -491,6 +557,10 @@
         state[n].running = true;
         if (n === 1) { state[1].pages = 0; state[1].urls = 0; }
         if (n === 2) { state[2].total = 0; state[2].ok = 0; state[2].err = 0; }
+        if (n === 3) {
+            state[3].ok = 0; state[3].noMatch = 0; state[3].processed = 0;
+            document.getElementById('s3ResumeTip').textContent = '';
+        }
 
         setGlobalStatus('running', `Paso ${n} ejecutando...`);
         setBtn(n, true);
@@ -501,6 +571,7 @@
         const titles = {
             1: '🔍 GENERADOR DE LISTA DE URLs — BLOG TELCEL',
             2: '🔍 EXTRACTOR DE FECHAS - USANDO SELENIUM',
+            3: '🏷️  CLASIFICADOR DE NOTAS — SOLUCIÓN Y SERVICIO',
         };
         addLine(titles[n], 'info');
         addLine('='.repeat(60), 'sep');
@@ -543,6 +614,14 @@
         state[n].running = false;
         setBtn(n, false);
         setGlobalStatus(dotState, dotState === 'done' ? 'Completado' : dotState === 'error' ? 'Error' : 'Listo');
+        if (n === 3 && dotState !== 'idle') {
+            fetch('/checkpoint-status').then(r => r.json()).then(data => {
+                if (data.last_processed_row >= 0) {
+                    document.getElementById('s3ResumeTip').textContent =
+                        `Checkpoint guardado: fila ${data.last_processed_row + 1}`;
+                }
+            }).catch(() => {});
+        }
     }
 
     /* ── Parsers ─────────────────────────────────────────────── */
@@ -563,6 +642,7 @@
 
         if (n === 1) parseStep1(raw);
         if (n === 2) parseStep2(raw);
+        if (n === 3) parseStep3(raw);
     }
 
     function parseStep1(raw) {
@@ -601,6 +681,57 @@
             document.getElementById('s2Total').textContent = fmt(state[2].total);
             setProgress(2, parseInt(mMile[3]), `${fmt(parseInt(mMile[1]))} de ${fmt(state[2].total)}`);
         }
+    }
+
+    function parseStep3(raw) {
+        // "TOTAL:1726"
+        const mTotal = raw.match(/^TOTAL:(\d+)/);
+        if (mTotal) {
+            state[3].total = parseInt(mTotal[1]);
+            document.getElementById('s3Total').textContent = fmt(state[3].total);
+            return;
+        }
+        // "PROGRESS:42/1726"
+        const mProg = raw.match(/^PROGRESS:(\d+)\/(\d+)/);
+        if (mProg) {
+            const cur   = parseInt(mProg[1]);
+            const total = parseInt(mProg[2]);
+            state[3].total     = total;
+            state[3].processed = cur;
+            document.getElementById('s3Total').textContent     = fmt(total);
+            document.getElementById('s3Processed').textContent = fmt(cur);
+            const pct = Math.round((cur / total) * 100);
+            setProgress(3, pct, `${fmt(cur)} de ${fmt(total)}`);
+            return;
+        }
+        // Líneas con ✅ = clasificada, — = sin match
+        if (raw.includes('✅')) {
+            state[3].ok++;
+            document.getElementById('s3Ok').textContent = fmt(state[3].ok);
+        } else if (raw.includes('sin match')) {
+            state[3].noMatch++;
+            document.getElementById('s3NoMatch').textContent = fmt(state[3].noMatch);
+        }
+        // Resumen final "Clasificadas: X  |  Sin match: Y"
+        const mResumen = raw.match(/Clasificadas:\s*(\d+)\s*\|\s*Sin match:\s*(\d+)/);
+        if (mResumen) {
+            document.getElementById('s3Ok').textContent      = fmt(parseInt(mResumen[1]));
+            document.getElementById('s3NoMatch').textContent = fmt(parseInt(mResumen[2]));
+        }
+    }
+
+    function resetCheckpoint() {
+        if (!confirm('¿Reiniciar clasificación desde la fila 1? Se perderá el progreso guardado.')) return;
+        fetch('/reset-checkpoint', { method: 'POST' })
+            .then(() => {
+                document.getElementById('s3ResumeTip').textContent = 'Checkpoint eliminado — comenzará desde cero';
+                document.getElementById('s3Ok').textContent        = '0';
+                document.getElementById('s3NoMatch').textContent   = '0';
+                document.getElementById('s3Processed').textContent = '0';
+                showProgress(3, false);
+                addLine('↺ Checkpoint eliminado. El próximo inicio comenzará desde la fila 1.', 'warning');
+            })
+            .catch(() => addLine('❌ Error al eliminar checkpoint.', 'error'));
     }
 
     function refreshStep2Stats() {
@@ -644,7 +775,7 @@
 
     function setBtn(n, running) {
         const btn = document.getElementById('btn' + n);
-        const labels = { 1: 'Generar URLs', 2: 'Extraer Fechas' };
+        const labels = { 1: 'Generar URLs', 2: 'Extraer Fechas', 3: 'Iniciar / Reanudar' };
         if (running) {
             btn.className = 'btn btn-danger';
             btn.innerHTML = `<svg viewBox="0 0 16 16" fill="currentColor">
